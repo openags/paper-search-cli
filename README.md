@@ -1,6 +1,13 @@
 # paper-search-cli
 
+[![PyPI](https://img.shields.io/pypi/v/paper-search-cli.svg)](https://pypi.org/project/paper-search-cli/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://pypi.org/project/paper-search-cli/)
+[![GitHub stars](https://img.shields.io/github/stars/openags/paper-search-cli)](https://github.com/openags/paper-search-cli/stargazers)
+
 A CLI tool for searching and downloading academic papers from 20+ sources. Also works as a **Claude Code Skill** for AI-assisted research.
+
+[![Star History Chart](https://api.star-history.com/svg?repos=openags/paper-search-cli&type=Date)](https://star-history.com/#openags/paper-search-cli&Date)
 
 ## Features
 
@@ -10,10 +17,11 @@ A CLI tool for searching and downloading academic papers from 20+ sources. Also 
 - **PDF text extraction**: download and extract text from papers in one step
 - **JSON output**: machine-readable output for scripting and AI integration
 - **Claude Code Skill**: use as a slash command in Claude Code
+- **Auto-publish**: every push to main auto-bumps version and publishes to PyPI
 
 ## Installation
 
-### pip
+### pip (recommended)
 
 ```bash
 pip install paper-search-cli
@@ -24,6 +32,14 @@ pip install paper-search-cli
 ```bash
 uv tool install paper-search-cli
 ```
+
+### npx (via GitHub Packages)
+
+```bash
+npx @openags/paper-search-cli search "transformer architecture"
+```
+
+> Requires Python 3.10+ with `paper-search-cli` installed.
 
 ### From source
 
@@ -155,6 +171,17 @@ All environment variables are optional. Set them in a `.env` file or export them
 | `PAPER_SEARCH_ACM_API_KEY` | Enable ACM Digital Library |
 
 Legacy `PAPER_SEARCH_MCP_*` prefix is also supported for backward compatibility.
+
+## Contributing
+
+```bash
+git clone https://github.com/openags/paper-search-cli.git
+cd paper-search-cli
+uv sync
+uv run python -m pytest tests/ -x -q
+```
+
+Every push to `main` automatically bumps the patch version and publishes to PyPI.
 
 ## License
 
