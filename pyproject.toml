@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paper-search-cli"
-version = "1.0.2"
+version = "1.0.3"
 authors = [
   { name = "P.S Zhang", email = "pengsongzhang96@gmail.com" },
 ]
