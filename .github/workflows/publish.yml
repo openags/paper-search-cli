@@ -1,9 +1,12 @@
-name: Publish to PyPI
+name: Auto Publish
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
 
 jobs:
   test:
@@ -12,43 +15,163 @@ jobs:
       matrix:
         python-version: ['3.10', '3.12', '3.13']
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
         run: uv pip install --system -e ".[dev]" 2>/dev/null || uv pip install --system -e .
 
       - name: Run tests
-        run: python -m pytest tests/ -x -q --tb=short 2>/dev/null || echo "No test suite configured"
+        run: python -m pytest tests/ -x -q --tb=short
 
-  publish:
+  bump-and-publish:
     needs: test
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
+      contents: write
       id-token: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
         with:
-          python-version: '3.10'
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Build package
+      - uses: astral-sh/setup-uv@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # --- Auto bump version ---
+      - name: Bump version
+        id: bump
+        run: |
+          # Read current version from pyproject.toml
+          CURRENT=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Current version: $CURRENT"
+
+          # Bump patch version
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New version: $NEW_VERSION"
+
+          # Update pyproject.toml
+          sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" pyproject.toml
+
+          # Update version in cli.py
+          sed -i "s/%(prog)s $CURRENT/%(prog)s $NEW_VERSION/" paper_search/cli.py 2>/dev/null || true
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml paper_search/cli.py
+          git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push && git push --tags
+
+      # --- Publish to PyPI ---
+      - name: Build Python package
         run: uv build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # --- Publish to npm ---
+      - name: Prepare npm package
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          mkdir -p npm-pkg/bin
+
+          # Create the npm wrapper script
+          cat > npm-pkg/bin/paper-search <<'SCRIPT'
+          #!/usr/bin/env node
+          const { execFileSync } = require("child_process");
+          const args = process.argv.slice(2);
+
+          // Try system-installed paper-search first, then fall back to uvx
+          try {
+            execFileSync("paper-search", args, { stdio: "inherit" });
+          } catch {
+            try {
+              execFileSync("uvx", ["paper-search-cli", ...args], { stdio: "inherit" });
+            } catch {
+              console.error(
+                "paper-search-cli is not installed.\n" +
+                "Install with: pip install paper-search-cli  OR  uv tool install paper-search-cli"
+              );
+              process.exit(1);
+            }
+          }
+          SCRIPT
+          chmod +x npm-pkg/bin/paper-search
+
+          # Create package.json
+          cat > npm-pkg/package.json <<EOF
+          {
+            "name": "paper-search-cli",
+            "version": "$VERSION",
+            "description": "CLI tool for searching and downloading academic papers from 20+ sources",
+            "bin": { "paper-search": "bin/paper-search" },
+            "keywords": ["academic", "papers", "search", "arxiv", "cli", "claude-skill"],
+            "license": "MIT",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/openags/paper-search-cli"
+            },
+            "author": "P.S Zhang <pengsongzhang96@gmail.com>"
+          }
+          EOF
+
+          # Create README for npm
+          cat > npm-pkg/README.md <<'EOF'
+          # paper-search-cli
+
+          CLI tool for searching and downloading academic papers from 20+ sources.
+
+          ## Usage via npx
+
+          ```bash
+          npx paper-search-cli search "transformer architecture"
+          npx paper-search-cli sources
+          ```
+
+          ## Prerequisite
+
+          Requires Python 3.10+ with `paper-search-cli` installed:
+
+          ```bash
+          pip install paper-search-cli
+          # or
+          uv tool install paper-search-cli
+          ```
+
+          See https://github.com/openags/paper-search-cli for full documentation.
+          EOF
+
+      - name: Publish to npm
+        working-directory: npm-pkg
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- GitHub Release ---
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.bump.outputs.version }}"
+          generate_release_notes: true
+          files: dist/*

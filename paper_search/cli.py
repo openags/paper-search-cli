@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 import textwrap
+from importlib.metadata import version as pkg_version
 from typing import Any, Dict, List
 
 from . import engine
@@ -154,7 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
               paper-search sources
         """),
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 1.0.0")
+    try:
+        _version = pkg_version("paper-search-cli")
+    except Exception:
+        _version = "dev"
+    parser.add_argument("--version", action="version", version=f"%(prog)s {_version}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # search
